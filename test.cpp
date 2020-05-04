@@ -6,12 +6,15 @@
 
 int main(int argc, char **argv)
 {
+  constexpr int ds = 100000;
   MPI_Init(&argc,&argv);
+  int rank = 0;
+  MPI_Comm_rank(MPI_COMM_WORLD,&rank);
   //STOP_TIMER;
   START_TIMER;
-  sleep(1);
+  usleep(ds);
   START_TIMER;
-  sleep(2);
+  usleep(ds+ds);
 #pragma omp parallel
   {
     START_TIMER;
@@ -20,7 +23,7 @@ int main(int argc, char **argv)
 #else
     const int id = 0;
 #endif
-    sleep(id);
+    usleep((id+rank)*ds);
     //START_TIMER;
     STOP_TIMER;
   }
