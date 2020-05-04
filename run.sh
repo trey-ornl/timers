@@ -3,8 +3,10 @@
 module load PrgEnv-cray
 export MV2_USE_CUDA=1
 export MV2_ENABLE_AFFINITY=0
+export OMP_NUM_THREADS=4
 ulimit -c unlimited
 rm -f core*
-srun -n1 ./a.out
+set -x
+srun --exclusive -n2 -c${OMP_NUM_THREADS} ./a.out
 
 

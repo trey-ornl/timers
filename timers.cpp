@@ -25,6 +25,8 @@ static std::stack<Timer *> stack;
 static std::map<std::string,Timer> timers;
 #pragma omp threadprivate(timers)
 
+static bool extraStops = false;
+
 struct Stat {
   Stat(): calls(0), exclusive(0), inclusive(0), on(false), thread(0) {}
   long calls;
@@ -78,8 +80,11 @@ void printTimers(FILE *const out, const MPI_Comm comm)
 
   if (rank == 0) {
     fprintf(out,"#TIMER exclusive inclusive calls timer\n");
+    if (extraStops) fprintf(out,"#TIMER WARNING: UNMATCHED STOPS\n");
     for (const auto &line: lines) {
-      fprintf(out,"#TIMER  %.2f  %.2f  %ld  %s thread %d\n",line.stat.exclusive,line.stat.inclusive,line.stat.calls,line.name.c_str(),line.stat.thread);
+      fprintf(out,"#TIMER  %.2f  %.2f  %ld  %s thread %d",line.stat.exclusive,line.stat.inclusive,line.stat.calls,line.name.c_str(),line.stat.thread);
+      if (line.stat.on) fprintf(out," WARNING: STILL RUNNING");
+      fprintf(out,"\n");
     }
     fflush(out);
   }
@@ -98,7 +103,10 @@ void startTimer(const std::string &func, const std::string &file, const int line
 
 void stopTimer()
 {
-  if (stack.empty()) return;
+  if (stack.empty()) {
+    extraStops = true;
+    return;
+  }
   Timer &t = *stack.top();
   stack.pop();
   assert(!t.starts.empty());
