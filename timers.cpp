@@ -1,5 +1,7 @@
 #include "timers.hpp"
 
+#ifdef O_TIMERS
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -192,4 +194,4 @@ void stopTimer()
   stack.top()->children += dt;
 }
 
-
+#endif

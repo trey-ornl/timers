@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef O_TIMERS
+
 #include <cstdio>
 #include <mpi.h>
 #include <string>
@@ -18,3 +20,12 @@ struct TimerGuard {
 #define STOP_TIMER stopTimer();
 #define TIME_TO_END_OF_BLOCK const TimerGuard timerGuard_ ## __LINE__ (__func__,__FILE__,__LINE__);
 
+#else
+
+#define START_TIMER
+#define STOP_TIMER
+#define TIME_TO_END_OF_BLOCK
+
+#define printTimers(X,Y) {}
+
+#endif
