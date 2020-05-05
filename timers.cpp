@@ -28,12 +28,14 @@ static std::map<std::string,Timer> timers;
 static bool extraStops = false;
 
 struct Stat {
-  Stat(): calls(0), exclusive(0), inclusive(0), on(false), task(0), thread(0), threads(0), threadSum(0) {}
+  Stat(): calls(0), exclusive(0), inclusive(0), on(false), task(0), tasks(0), taskSum(0), thread(0), threads(0), threadSum(0) {}
   long calls;
   double exclusive;
   double inclusive;
   bool on;
   int task;
+  int tasks;
+  double taskSum;
   int thread;
   int threads;
   double threadSum;
@@ -48,6 +50,9 @@ struct Line {
 
 static void getStats(const MPI_Comm comm, const int from, std::map<std::string,Stat> &stats)
 {
+  int iStops = 0;
+  MPI_Recv(&iStops,1,MPI_INT,from,from,comm,MPI_STATUS_IGNORE);
+  if (iStops) extraStops = true;
   int nStats = 0;
   MPI_Recv(&nStats,1,MPI_INT,from,from,comm,MPI_STATUS_IGNORE);
   for (int i = 0; i < nStats; i++) {
@@ -57,20 +62,22 @@ static void getStats(const MPI_Comm comm, const int from, std::map<std::string,S
     name.resize(nameSize);
     MPI_Recv(&name.front(),nameSize,MPI_CHAR,from,from,comm,MPI_STATUS_IGNORE);
     Stat &s = stats[name];
-    double d[3] = {0,0,0};
-    MPI_Recv(d,3,MPI_DOUBLE,from,from,comm,MPI_STATUS_IGNORE);
-    long l[5] = {0,0,0,0,0};
-    MPI_Recv(l,5,MPI_LONG,from,from,comm,MPI_STATUS_IGNORE);
+    double d[4] = {0,0,0,0};
+    MPI_Recv(d,4,MPI_DOUBLE,from,from,comm,MPI_STATUS_IGNORE);
+    long l[6] = {0,0,0,0,0};
+    MPI_Recv(l,6,MPI_LONG,from,from,comm,MPI_STATUS_IGNORE);
     if (l[1]) s.on = true;
     if (s.exclusive < d[0]) {
       s.exclusive = d[0];
       s.inclusive = d[1];
       s.calls = l[0];
       s.task = l[2];
-      s.thread = l[3];
-      s.threads = l[4];
-      s.threadSum = d[2];
+      s.thread = l[4];
+      s.threads = l[5];
+      s.threadSum = d[3];
     }
+    s.tasks += l[3];
+    s.taskSum += d[2];
   }
 }
 
@@ -103,6 +110,8 @@ void printTimers(FILE *const out, const MPI_Comm comm)
         s.exclusive = exclusive;
         s.inclusive = t.total;
         s.task = rank;
+        s.tasks = 1;
+        s.taskSum = exclusive;
         s.thread = id;
       }
       s.threads++;
@@ -114,6 +123,8 @@ void printTimers(FILE *const out, const MPI_Comm comm)
   if ((rank > 0) && (2*rank < size)) getStats(comm,2*rank,stats);
   if (rank > 0) {
     const int to = rank/2;
+    const int iStops = extraStops;
+    MPI_Send(&iStops,1,MPI_INT,to,rank,comm);
     const int nStats = stats.size();
     MPI_Send(&nStats,1,MPI_INT,to,rank,comm);
     for (const auto &pair: stats) {
@@ -121,10 +132,10 @@ void printTimers(FILE *const out, const MPI_Comm comm)
       MPI_Send(&nameSize,1,MPI_INT,to,rank,comm);
       MPI_Send(pair.first.data(),nameSize,MPI_CHAR,to,rank,comm);
       const Stat &s = pair.second;
-      const double d[3] = {s.exclusive,s.inclusive,s.threadSum};
-      MPI_Send(d,3,MPI_DOUBLE,to,rank,comm);
-      const long l[5] = {s.calls,s.on,s.task,s.thread,s.threads};
-      MPI_Send(l,5,MPI_LONG,to,rank,comm);
+      const double d[4] = {s.exclusive,s.inclusive,s.taskSum,s.threadSum};
+      MPI_Send(d,4,MPI_DOUBLE,to,rank,comm);
+      const long l[6] = {s.calls,s.on,s.task,s.tasks,s.thread,s.threads};
+      MPI_Send(l,6,MPI_LONG,to,rank,comm);
     }
   }
 
@@ -133,17 +144,21 @@ void printTimers(FILE *const out, const MPI_Comm comm)
     for (const auto &pair: stats) lines.push_back({pair.first,pair.second});
     std::sort(lines.begin(),lines.end());
 
-    fprintf(out,"#TIMER exclusive inclusive calls timer\n");
     if (extraStops) fprintf(out,"#TIMER *** WARNING: UNMATCHED STOPS\n");
+    fprintf(out,"#TIMER exclusive inclusive calls timer\n");
     for (const auto &line: lines) {
       fprintf(out,"#TIMER  %.2f  %.2f  %ld  %s",line.stat.exclusive,line.stat.inclusive,line.stat.calls,line.name.c_str());
-      if (line.stat.threads > 1) {
-        const double threadAvg = line.stat.threadSum/double(line.stat.threads);
-        const int threadLoad = round(100.0*threadAvg/line.stat.exclusive);
-        fprintf(out," thread %d (%dx%d%%)",line.stat.thread,line.stat.threads,threadLoad);
+      if (size > 1) {
+        const double avg = line.stat.taskSum/double(line.stat.tasks);
+        const int load = round(100.0*avg/line.stat.exclusive);
+        fprintf(out," task %d (%dx%d%%)",line.stat.task,line.stat.tasks,load);
       }
-      if (size > 1) fprintf(out," task %d",line.stat.task);
-      if (line.stat.on) fprintf(out," *** WARNING: STILL RUNNING");
+      if (line.stat.threads > 1) {
+        const double avg = line.stat.threadSum/double(line.stat.threads);
+        const int load = round(100.0*avg/line.stat.exclusive);
+        fprintf(out," thread %d (%dx%d%%)",line.stat.thread,line.stat.threads,load);
+      }
+      if (line.stat.on) fprintf(out," *** WARNING: NOT STOPPED");
       fprintf(out,"\n");
     }
     fflush(out);
